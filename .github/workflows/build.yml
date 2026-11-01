@@ -1,0 +1,43 @@
+name: Compilar APK
+
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.14.3"
+
+      - name: Compilar
+        run: gradle --no-daemon assembleRelease
+
+      - name: Publicar en Releases (enlace fijo para la TV)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp app/build/outputs/apk/release/app-release.apk KaraokeTV.apk
+          gh release delete latest --yes --cleanup-tag || true
+          gh release create latest KaraokeTV.apk \
+            --target "${{ github.sha }}" \
+            --title "Karaoke TV (compilación ${{ github.run_number }})" \
+            --notes "Descarga directa: https://github.com/${{ github.repository }}/releases/download/latest/KaraokeTV.apk"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: KaraokeTV
+          path: KaraokeTV.apk
