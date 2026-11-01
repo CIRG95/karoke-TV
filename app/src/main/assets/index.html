@@ -118,6 +118,15 @@
   #player.split #plain { left: 64.5vw; right: 3vw; top: 7vh; bottom: 7vh; max-height: none; text-align: left;
     font-size: calc(1.8vw * var(--ls)); }
   #player.split #hint { display: none; }
+
+  /* sincronizador manual */
+  #syncbar { position: absolute; left: 50%; top: 3vh; transform: translateX(-50%); display: none; z-index: 3;
+    background: var(--red); color: #fff; font-size: 1.4vw; font-weight: 500; padding: 1vh 1.8vw; border-radius: 3vw;
+    white-space: nowrap; }
+  #player.syncing #syncbar { display: block; }
+  #player.syncing #hint, #player.syncing #top { opacity: 0; }
+  #player.syncing #l-cur-t { color: var(--acc); background: none; -webkit-background-clip: border-box; background-clip: border-box; }
+  #player.syncing #l-prev, #player.syncing #l-prev2 { text-decoration: line-through rgba(255,255,255,.25); }
   #l-cur-t { --p: 0%;
     background-image: linear-gradient(90deg, var(--acc) var(--p), #fff var(--p));
     -webkit-background-clip: text; background-clip: text; color: transparent; }
@@ -256,6 +265,7 @@
     <div id="upnext" class="strip"></div>
   </div>
   <div id="upcard"></div>
+  <div id="syncbar"></div>
   <div id="msg"></div>
   <div id="hint">OK pausa · ◀ ▶ ajustar letra · ▼ más videos · ATRÁS salir</div>
 </div>
@@ -723,7 +733,9 @@ function guessArtistTrack(v) {
     .replace(/\s+/g, ' ').trim();
   const parts = s.split(/\s+[-–—~]\s+/).map(cleanPart).filter(Boolean);
   const channel = (v.channel || '').replace(/\s*-\s*topic$/i, '').replace(/vevo$/i, '')
-    .replace(/\b(official|oficial|music|records|tv)\b/gi, '').trim();
+    .replace(/([a-záéíóúñ])([A-ZÁÉÍÓÚÑ])/g, '$1 $2')              // "BandaFicticia" → "Banda Ficticia"
+    .replace(/([A-Za-záéíóúñÁÉÍÓÚÑ])(\d)/g, '$1 $2')               // "Calle13" → "Calle 13"
+    .replace(/\b(official|oficial|music|records|tv)\b/gi, '').replace(/\s+/g, ' ').trim();
   let artist = '', track = '';
   if (parts.length >= 2) { artist = parts[0]; track = parts.slice(1).join(' '); }
   else { track = parts[0] || cleanPart(s) || v.title; artist = channel; }
@@ -748,8 +760,15 @@ async function lyricsSimp(v) {
       }));
   } catch (e) { return []; }
 }
-async function lyricsLrclib(v) {
-  const { artist, track, query } = guessArtistTrack(v);
+function searchTerms(v, override) {
+  if (override && (override.artist || override.track)) {
+    const artist = (override.artist || '').trim(), track = (override.track || '').trim();
+    return { artist, track, query: (artist + ' ' + track).trim() };
+  }
+  return guessArtistTrack(v);
+}
+async function lyricsLrclib(v, override) {
+  const { artist, track, query } = searchTerms(v, override);
   const found = new Map();
   const hasSynced = () => [...found.values()].some(c => c.syncedLyrics);
   const tryUrl = async u => {
@@ -775,14 +794,51 @@ function overlap(a, b) {
   let n = 0; for (const w of a) if (b.has(w)) n++;
   return n / Math.min(a.size, b.size);
 }
-async function findLyrics(v) {
-  const [simp, lrc] = await Promise.all([lyricsSimp(v), lyricsLrclib(v)]);
+/* 3) NetEase Cloud Music: respaldo cuando las otras dos no tienen letra con tiempos (API no oficial). */
+async function lyricsNetease(v, override) {
+  const { artist, track, query } = searchTerms(v, override);
+  try {
+    const d = await getJSON('https://music.163.com/api/search/get/web?type=1&limit=6&s=' + enc(query));
+    const songs = (d && d.result && d.result.songs) || [];
+    const want = wordSet(track);
+    const wantArtist = wordSet(artist);
+    const good = songs.filter(s => {
+      const nameOk = overlap(wordSet(s.name), want) >= 0.5;
+      const artOk = !wantArtist.size || overlap(wordSet((s.artists || []).map(a => a.name).join(' ')), wantArtist) >= 0.5;
+      return nameOk && artOk;
+    }).slice(0, 2);
+    const out = [];
+    for (const s of good) {
+      try {
+        const l = await getJSON('https://music.163.com/api/song/lyric?lv=1&id=' + s.id);
+        let lrc = (l && l.lrc && l.lrc.lyric) || '';
+        lrc = lrc.split('\n').filter(x => !/(作词|作曲|编曲|制作人|混音|母带|录音|监制)\s*[:：]/.test(x)).join('\n');
+        if (parseLRC(lrc).filter(x => x.text).length < 4) continue;
+        out.push({ id: 'ne:' + s.id, src: 'NetEase', trackName: s.name, artistName: (s.artists || []).map(a => a.name).join(', '),
+                   duration: s.duration ? s.duration / 1000 : 0, syncedLyrics: lrc, plainLyrics: '' });
+      } catch (e) {}
+    }
+    return out;
+  } catch (e) { return []; }
+}
+function mineFor(id) { return LS.get('mylrc:' + id, null); }
+function mineCand(m) {
+  return { id: 'mine', src: 'Tuya', mine: true, byVideo: true, trackName: m.track || '', artistName: m.artist || '',
+           duration: 0, syncedLyrics: m.lrc, plainLyrics: '' };
+}
+async function findLyrics(v, override) {
+  override = override || prefsFor(v.id).q;
+  const [simp, lrc] = await Promise.all([lyricsSimp(v), lyricsLrclib(v, override)]);
   const ref = lrc.find(c => c.syncedLyrics) || lrc[0];
   if (ref) {
     const refWords = wordSet(ref.syncedLyrics || ref.plainLyrics);
     for (const c of simp) c.suspect = overlap(wordSet(c.syncedLyrics || c.plainLyrics), refWords) < 0.25;
   }
-  return [...simp, ...lrc];
+  let all = [...simp, ...lrc];
+  if (!all.some(c => c.syncedLyrics && !c.suspect)) all = all.concat(await lyricsNetease(v, override));
+  const m = mineFor(v.id);
+  if (m && m.lrc) all.unshift(mineCand(m));
+  return all;
 }
 function parseLRC(txt) {
   const out = [];
@@ -824,8 +880,9 @@ function prefsFor(id) { return LS.get('prefs', {})[id] || {}; }
 function savePrefs() {
   if (!cur) return;
   const p = LS.get('prefs', {});
+  const old = p[cur.v.id] || {};
   delete p[cur.v.id];
-  p[cur.v.id] = { offset: cur.offset, lrc: cur.cands[cur.ci] ? cur.cands[cur.ci].id : undefined };
+  p[cur.v.id] = { offset: cur.offset, lrc: cur.cands[cur.ci] ? cur.cands[cur.ci].id : undefined, q: old.q };
   const keys = Object.keys(p);
   for (let i = 0; i < keys.length - 300; i++) delete p[keys[i]];
   LS.set('prefs', p);
@@ -850,6 +907,7 @@ async function play(v, opts = {}) {
     }).catch(() => {}).then(() => { if (Q.seed === seed) { Q.loading = false; renderNext(); pushState(); } });
   }
   if (v.req) toast('🎤 ' + (v.by ? 'Pedida por ' + v.by : 'Pedida desde el celular') + ': ' + short(v.title, 50), 4000);
+  if (sync) endSync();
   stopCountdown();
   addRecent(v);
   const saved = prefsFor(v.id);
@@ -887,26 +945,137 @@ async function play(v, opts = {}) {
     player.loadVideoById(v.id);
   }
 
-  const cands = await lyricsP;
+  await showLyrics(token, await lyricsP, saved, true);
+}
+async function showLyrics(token, cands, saved, first) {
   if (cur !== token) return;
   const dur = await waitDuration(10000);
   if (cur !== token) return;
-  // Prioridad: con tiempos > sin tiempos; SimpMusic (mismo video) > LRCLIB con duración parecida; posibles traducciones al final.
-  const score = c => (c.syncedLyrics ? 0 : 1000) + (c.suspect ? 500 : 0) +
+  // Prioridad: tuya > con tiempos > sin tiempos; SimpMusic (mismo video) > LRCLIB/NetEase con duración parecida; posibles traducciones al final.
+  const score = c => (c.mine ? -1000 : 0) + (c.syncedLyrics ? 0 : 1000) + (c.suspect ? 500 : 0) +
     (c.byVideo ? 0 : (dur > 0 && c.duration ? Math.abs(c.duration - dur) : 60) + 5);
   cands.sort((a, b) => score(a) - score(b));
-  if (saved.lrc) { const k = cands.findIndex(c => c.id === saved.lrc); if (k > 0) cands.unshift(cands.splice(k, 1)[0]); }
+  if (first && saved.lrc && !(cands[0] && cands[0].mine)) { const k = cands.findIndex(c => c.id === saved.lrc); if (k > 0) cands.unshift(cands.splice(k, 1)[0]); }
   cur.cands = cands;
   if (!cands.length) {
-    $('src').textContent = 'No encontré letra para este video';
-    toast('Sin letra 😕 Prueba otra versión del video (▼ para ver más)', 5000);
-    renderCtl();
+    clearLyrics();
+    const t = searchTerms(cur.v, prefsFor(cur.v.id).q);
+    $('src').textContent = `No encontré letra (busqué: ${[t.artist, t.track].filter(Boolean).join(' – ') || t.query})`;
+    toast('Sin letra 😕 Desde el celular puedes buscarla con otro nombre o sincronizarla a mano', 6000);
+    renderCtl(); pushState();
     return;
   }
   selectCand(0);
+  pushState();
   const c = cands[0];
-  if (c.syncedLyrics && dur > 0 && c.duration && Math.abs(dur - c.duration) > 8 && !saved.offset)
+  if (first && c.syncedLyrics && dur > 0 && c.duration && Math.abs(dur - c.duration) > 8 && !saved.offset)
     toast('El video y la canción duran distinto: si la letra va desfasada, ajústala con ◀ ▶', 6000);
+}
+
+/* ---------- buscar letra con otro nombre (desde el celular) ---------- */
+async function researchLyrics(artist, track) {
+  if (!cur) return;
+  const token = cur;
+  const q = { artist: String(artist || '').trim(), track: String(track || '').trim() };
+  if (!q.artist && !q.track) return;
+  const p = LS.get('prefs', {});
+  p[cur.v.id] = Object.assign({}, p[cur.v.id] || {}, { q, lrc: undefined });
+  LS.set('prefs', p);
+  $('src').textContent = 'Buscando “' + [q.artist, q.track].filter(Boolean).join(' – ') + '”…';
+  toast('🔎 Buscando letra: ' + [q.artist, q.track].filter(Boolean).join(' – '), 3000);
+  const cands = await findLyrics(cur.v, q);
+  if (cur !== token) return;
+  await showLyrics(token, cands, {}, false);
+  if (cur === token && cands.length) toast('✔ Encontré ' + cands.length + (cands.length > 1 ? ' letras' : ' letra') + ' (' + cur.cands[0].src + ')', 3500);
+}
+
+/* ---------- sincronizador manual ---------- */
+let sync = null;   // { lines: [...], times: [...], i }
+function fmtLrcTime(t) {
+  const m = Math.floor(t / 60), s = t - m * 60;
+  return '[' + String(m).padStart(2, '0') + ':' + s.toFixed(2).padStart(5, '0') + ']';
+}
+function saveMine(lrc) {
+  const t = searchTerms(cur.v, prefsFor(cur.v.id).q);
+  const m = { lrc, artist: t.artist, track: t.track, t: Date.now() };
+  LS.set('mylrc:' + cur.v.id, m);
+  cur.cands = [mineCand(m), ...cur.cands.filter(c => !c.mine)];
+  cur.offset = 0;
+  selectCand(0);
+  pushState();
+}
+function startSync(text) {
+  if (!cur || !player || !playerReady) { toast('Primero pon la canción en la TV'); return; }
+  const raw = String(text || '').replace(/\r/g, '').trim();
+  if (/\[\d+:\d+(?:[.:]\d+)?\]/.test(raw) && parseLRC(raw).filter(x => x.text).length >= 3) {
+    saveMine(raw);
+    toast('✔ Letra con tiempos guardada para este video', 4000);
+    return;
+  }
+  const lines = raw.split('\n').map(s => s.trim()).filter(s => s && !/^[\[(].*[\])]$/.test(s));
+  if (lines.length < 2) { toast('Pega la letra completa, una línea por renglón'); return; }
+  stopCountdown(); closePanel();
+  sync = { lines, times: [], i: 0 };
+  $('player').classList.add('syncing');
+  $('plain').style.display = 'none';
+  $('lyrics').style.display = '';
+  player.seekTo(0, true); player.playVideo();
+  renderSync();
+  pushState();
+}
+function renderSync() {
+  const L = sync.lines, i = sync.i;
+  const at = k => (k >= 0 && k < L.length ? L[k] : '');
+  $('l-prev2').textContent = at(i - 2);
+  $('l-prev').textContent = at(i - 1);
+  $('l-cur-t').textContent = at(i);
+  $('l-cur-t').style.setProperty('--p', '0%');
+  $('l-next').textContent = at(i + 1);
+  $('l-next2').textContent = at(i + 2);
+  $('l-next3').textContent = at(i + 3);
+  $('l-next4').textContent = at(i + 4);
+  msg('');
+  $('syncbar').textContent = `🎙 Sincronizando ${i + 1}/${L.length} · OK cuando empiece esta línea · ◀ deshacer · ATRÁS cancelar`;
+}
+function syncTap(extraDelay) {
+  if (!sync) return;
+  // se resta el tiempo de reacción (y la demora de la red si viene del celular)
+  sync.times[sync.i] = Math.max(0, nowTime() - 0.2 - (extraDelay || 0));
+  sync.i++;
+  if (sync.i >= sync.lines.length) return finishSync();
+  renderSync(); pushState();
+}
+function syncUndo() {
+  if (!sync || !sync.i) return;
+  sync.i--; sync.times.length = sync.i;
+  const back = sync.times[sync.i - 1];
+  try { player.seekTo(Math.max(0, (back != null ? back : 0) - 1), true); } catch (e) {}
+  renderSync(); pushState();
+}
+function endSync() {
+  sync = null;
+  $('player').classList.remove('syncing');
+  pushState();
+}
+function finishSync() {
+  const lrc = sync.lines.map((l, k) => fmtLrcTime(sync.times[k]) + l).join('\n');
+  endSync();
+  saveMine(lrc);
+  toast('✔ ¡Listo! Letra sincronizada y guardada para este video', 5000);
+}
+function cancelSync() {
+  if (!sync) return;
+  endSync();
+  if (cur.cands[cur.ci]) selectCand(cur.ci); else clearLyrics();
+  toast('Sincronización cancelada');
+}
+function deleteMine() {
+  if (!cur) return;
+  try { localStorage.removeItem('mylrc:' + cur.v.id); } catch (e) {}
+  cur.cands = cur.cands.filter(c => !c.mine);
+  if (cur.cands.length) selectCand(0); else { clearLyrics(); $('src').textContent = 'Sin letra'; }
+  toast('Se borró tu versión de la letra');
+  pushState();
 }
 function waitDuration(ms) {
   return new Promise(res => {
@@ -951,6 +1120,10 @@ function onState(e) {
   if (e.data === 1) { msg(''); hideCaptions(); setTimeout(hideCaptions, 1500); }
   renderCtl();
   pushState();
+  if (e.data === 0 && sync) {
+    if (sync.i >= 2) { sync.lines = sync.lines.slice(0, sync.i); finishSync(); } else cancelSync();
+    return;
+  }
   if (e.data === 0) {
     if (autoplay && hasNext()) startCountdown();
     else { showTop(60000); openPanel(Q.list.length > 1 ? 'next' : 'ctl'); }
@@ -1097,7 +1270,7 @@ function toggleLayout() {
 }
 function frame() {
   requestAnimationFrame(frame);
-  if (screen !== 'player' || !cur) return;
+  if (screen !== 'player' || !cur || sync) return;
   const raw = nowTime();
   const t = raw + cur.offset;
   if (panelOpen) {
@@ -1155,6 +1328,12 @@ function nextCand(d) {
 }
 function playerKey(k, enter) {
   if (!cur) return false;
+  if (sync) {
+    if (enter) { syncTap(0); return true; }
+    if (k === 'ArrowLeft') { syncUndo(); return true; }
+    if (k === ' ' || k === 'MediaPlayPause') { togglePlay(); return true; }
+    return true;
+  }
   if (cd) {
     if (enter) { stopCountdown(); play(null, { queueIndex: Q.i + 1 }); }
     return true;
@@ -1207,6 +1386,13 @@ function pushState() {
     const s = {
       now: cur ? { id: cur.v.id, title: cur.v.title, channel: cur.v.channel } : null,
       playing, offset: cur ? cur.offset : 0, hasKey: !!ytKey,
+      lyr: cur ? (() => {
+        const c = cur.cands[cur.ci];
+        const t = searchTerms(cur.v, prefsFor(cur.v.id).q);
+        return { src: c ? c.src : '', synced: !!(c && c.syncedLyrics), mine: !!(c && c.mine), count: cur.cands.length,
+                 artist: t.artist, track: t.track };
+      })() : null,
+      sync: sync ? { i: sync.i, n: sync.lines.length, line: sync.lines[sync.i] || '', next: sync.lines[sync.i + 1] || '' } : null,
       queue: cur ? Q.list.slice(Q.i + 1, Q.i + 16).map(x => ({ id: x.id, title: x.title, channel: x.channel, req: !!x.req, by: x.by || '' })) : []
     };
     A.setRemoteState(JSON.stringify(s));
@@ -1238,6 +1424,12 @@ window.remoteCmd = (kind, body) => {
   try { d = JSON.parse(body || '{}') || {}; } catch (e) {}
   if (kind === 'add') { remoteAdd(d); return; }
   if (screen !== 'player' || !cur) return;
+  if (kind === 'lsearch') { researchLyrics(d.artist, d.track); return; }
+  if (kind === 'sstart') { startSync(d.text); return; }
+  if (kind === 'stap') { syncTap(0.12); return; }
+  if (kind === 'sundo') { syncUndo(); return; }
+  if (kind === 'scancel') { cancelSync(); return; }
+  if (kind === 'mdel') { deleteMine(); return; }
   if (kind === 'pp') togglePlay();
   else if (kind === 'next') { if (hasNext()) { stopCountdown(); play(null, { queueIndex: Q.i + 1 }); } else toast('No hay más canciones en la cola'); }
   else if (kind === 'minus') shiftOffset(-0.5);
@@ -1273,6 +1465,7 @@ async function checkUpdate(manual) {
 /* ---------- llamadas desde Android ---------- */
 window.appBack = () => {
   if (screen === 'player') {
+    if (sync) { cancelSync(); return true; }
     if (cd) { stopCountdown(); openPanel('next'); return true; }
     if (panelOpen) { closePanel(); return true; }
     goBack(); return true;

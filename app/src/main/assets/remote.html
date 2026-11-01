@@ -47,6 +47,20 @@
   .q img { width: 96px; }
   .tag { display: inline-block; font-size: 11px; font-weight: 700; background: var(--red); color: #fff; border-radius: 4px; padding: 1px 6px; margin-bottom: 3px; }
 
+  .lyrst { font-size: 14px; color: var(--dim); margin-bottom: 10px; line-height: 1.4; }
+  .lyrst b { color: var(--fg); font-weight: 500; }
+  .lyrst.warn b { color: var(--acc); }
+  details { background: var(--card); border-radius: 12px; margin-top: 8px; }
+  summary { padding: 13px 14px; font-size: 15px; font-weight: 500; cursor: pointer; list-style: none; }
+  summary::-webkit-details-marker { display: none; }
+  summary::after { content: '›'; float: right; color: var(--dim); transition: transform .2s; }
+  details[open] summary::after { transform: rotate(90deg); }
+  .det { padding: 0 14px 14px; }
+  .syncbox { background: var(--card); border-radius: 14px; padding: 14px; text-align: center; }
+  .syncbox .sl { font-size: 20px; font-weight: 700; color: var(--acc); margin: 8px 0; line-height: 1.3; }
+  .syncbox .c { font-size: 13px; color: var(--dim); }
+  .tap { width: 100%; margin-top: 10px; padding: 26px 10px; font-size: 22px; font-weight: 800; background: var(--acc);
+    color: #0f0f0f; border-color: var(--acc); border-radius: 18px; touch-action: manipulation; }
   #toast { position: fixed; left: 50%; bottom: calc(20px + env(safe-area-inset-bottom)); transform: translateX(-50%); background: #2a2a2a;
     color: #fff; padding: 12px 18px; border-radius: 999px; font-size: 14px; opacity: 0; transition: opacity .25s; pointer-events: none;
     max-width: 90vw; text-align: center; }
@@ -75,6 +89,45 @@
     <button data-c="bigger">Texto A+</button>
   </div>
   <p class="help" style="margin-top:6px">«Letra −/+» adelanta o atrasa la letra; «Texto» cambia su tamaño; «Diseño» pone el video al lado.</p>
+</section>
+
+<section id="lyr-sec" style="display:none">
+  <h2>Letra</h2>
+  <div id="lyr-status" class="lyrst"></div>
+
+  <div id="sync-on" style="display:none">
+    <div class="syncbox">
+      <div class="c" id="sync-prog"></div>
+      <div class="sl" id="sync-line"></div>
+      <div class="c" id="sync-next"></div>
+    </div>
+    <button id="tap" class="tap">▶ ¡AHORA!</button>
+    <div class="row">
+      <button data-c="sundo">↩ Deshacer</button>
+      <button data-c="scancel">✖ Cancelar</button>
+    </div>
+    <p class="help">Toca <b>¡AHORA!</b> justo cuando empiece a cantarse la línea amarilla. También puedes usar OK en el control de la TV (es un poco más preciso).</p>
+  </div>
+
+  <div id="sync-off">
+    <details id="d-search">
+      <summary>🔎 Buscar letra con otro nombre</summary>
+      <div class="det">
+        <input id="ls-artist" placeholder="Artista (ej: Calle 13)" autocomplete="off">
+        <input id="ls-track" placeholder="Canción (ej: Latinoamérica)" autocomplete="off" style="margin-top:8px">
+        <button id="ls-go" class="pri" style="width:100%;margin-top:10px">Buscar</button>
+      </div>
+    </details>
+    <details id="d-sync">
+      <summary>🎙 Sincronizar a mano</summary>
+      <div class="det">
+        <textarea id="sync-text" placeholder="Pega aquí la letra completa (una línea por renglón). Si tienes un archivo .lrc con tiempos, pégalo y se guarda directo." style="min-height:140px"></textarea>
+        <button id="sync-go" class="red" style="width:100%;margin-top:10px">Empezar a sincronizar</button>
+        <p class="help">La canción vuelve al inicio. Luego tocas <b>¡AHORA!</b> al comenzar cada línea. Al terminar queda guardada como karaoke para este video.</p>
+      </div>
+    </details>
+    <button id="mdel" style="display:none;margin-top:10px">🗑 Borrar mi versión de la letra</button>
+  </div>
 </section>
 
 <section>
@@ -133,7 +186,48 @@ for (const b of document.querySelectorAll('[data-c]')) b.onclick = async () => {
   if (!ok) toast('No pude conectar con la TV'); else setTimeout(refresh, 600);
 };
 
+$('ls-go').onclick = async () => {
+  const artist = $('ls-artist').value.trim(), track = $('ls-track').value.trim();
+  if (!artist && !track) { toast('Escribe el artista o la canción'); return; }
+  if (await post('lsearch', { artist, track })) { toast('🔎 Buscando en la TV…'); $('d-search').open = false; setTimeout(refresh, 2500); }
+  else toast('No pude conectar con la TV');
+};
+$('sync-go').onclick = async () => {
+  const text = $('sync-text').value.trim();
+  if (text.split('\n').filter(l => l.trim()).length < 2) { toast('Pega la letra completa'); return; }
+  if (await post('sstart', { text })) { $('d-sync').open = false; setTimeout(refresh, 500); }
+  else toast('No pude conectar con la TV');
+};
+// el botón grande responde al tocar (no al soltar) para ganar precisión
+$('tap').addEventListener('pointerdown', e => { e.preventDefault(); post('stap'); if (navigator.vibrate) navigator.vibrate(25); setTimeout(refresh, 250); });
+$('mdel').onclick = async () => { if (confirm('¿Borrar tu versión sincronizada de esta canción?')) { await post('mdel'); setTimeout(refresh, 400); } };
+let filledFor = '';
+function renderLyr(s) {
+  const L = s.lyr;
+  $('lyr-sec').style.display = s.now ? '' : 'none';
+  if (!s.now || !L) return;
+  if (filledFor !== s.now.id) {         // propone lo que la TV buscó, para corregirlo
+    filledFor = s.now.id;
+    $('ls-artist').value = L.artist || '';
+    $('ls-track').value = L.track || '';
+    $('sync-text').value = '';
+  }
+  const st = $('lyr-status');
+  if (!L.src) { st.className = 'lyrst warn'; st.innerHTML = '<b>⚠ Sin letra para este video.</b> Búscala con otro nombre o sincronízala a mano.'; }
+  else if (!L.synced) { st.className = 'lyrst warn'; st.innerHTML = `<b>⚠ Letra sin tiempos</b> (${esc(L.src)}). Puedes sincronizarla a mano.`; }
+  else st.innerHTML = `<b>✔ Letra sincronizada</b> · fuente: ${esc(L.src)}${L.count > 1 ? ` · ${L.count} versiones` : ''}`, st.className = 'lyrst';
+  $('mdel').style.display = L.mine ? '' : 'none';
+  const S = s.sync;
+  $('sync-on').style.display = S ? '' : 'none';
+  $('sync-off').style.display = S ? 'none' : '';
+  if (S) {
+    $('sync-prog').textContent = `Línea ${S.i + 1} de ${S.n}`;
+    $('sync-line').textContent = S.line;
+    $('sync-next').textContent = S.next ? 'Después: ' + S.next : 'Última línea';
+  }
+}
 function render(s) {
+  renderLyr(s);
   if (s.now) {
     $('now').className = 'now';
     $('now').innerHTML = `<img src="${thumb(s.now.id)}" alt=""><div><div class="t">${esc(s.now.title)}</div>` +
@@ -155,8 +249,9 @@ async function refresh() {
     if (txt !== last) { last = txt; render(JSON.parse(txt || '{}')); }
   } catch (e) { $('dot').classList.remove('ok'); $('conn').textContent = 'Sin conexión'; }
 }
-refresh();
-setInterval(refresh, 2500);
+(function loop() {           // más rápido mientras se sincroniza, para ver la línea siguiente al instante
+  refresh().then(() => setTimeout(loop, $('sync-on').style.display === 'none' ? 2500 : 400));
+})();
 </script>
 </body>
 </html>
