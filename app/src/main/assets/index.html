@@ -197,6 +197,7 @@
   <div class="ri" data-act="home"><div class="ic">🏠</div><div class="lb">Inicio</div></div>
   <div class="ri" data-act="search"><div class="ic">🔍</div><div class="lb">Buscar</div></div>
   <div class="ri" data-act="setup"><div class="ic">⚙️</div><div class="lb">Clave de YouTube</div></div>
+  <div class="ri" data-act="checkupd"><div class="ic">🔄</div><div class="lb">Buscar actualizaciones</div></div>
 </nav>
 
 <div id="setup" class="screen">
@@ -591,6 +592,7 @@ function activate(el) {
 }
 function act(a) {
   if (a === 'home' || a === 'search' || a === 'setup') return go(a);
+  if (a === 'checkupd') { checkUpdate(true); return; }
   if (a === 'later') { if (upd) upd.shown = true; return go('home'); }
   if (a === 'doupdate') {
     if (upd && A && A.installUpdate) { updateStatus('Preparando…'); A.installUpdate(upd.url); }
@@ -1241,19 +1243,21 @@ window.remoteCmd = (kind, body) => {
 const UPDATE_REPO = 'CIRG95/karoke-TV';
 let upd = null;
 window.updateStatus = t => { $('upd-msg').textContent = t; };
-async function checkUpdate() {
-  if (!A || !A.getVersion || !A.installUpdate) return;
+async function checkUpdate(manual) {
+  if (!A || !A.getVersion || !A.installUpdate) { if (manual) toast('Las actualizaciones solo funcionan en la TV'); return; }
+  const mine = +A.getVersion() || 0;
+  if (manual) toast('🔄 Buscando actualizaciones…', 4000);
   try {
     const d = await getJSON('https://api.github.com/repos/' + UPDATE_REPO + '/releases/latest');
     const m = /compilaci[oó]n\s+(\d+)/i.exec(d.name || '');
-    const n = m ? +m[1] : 0, mine = +A.getVersion() || 0;
+    const n = m ? +m[1] : 0;
     const asset = (d.assets || []).find(a => /\.apk$/i.test(a.name));
-    if (!asset || n <= mine) return;
+    if (!asset || n <= mine) { if (manual) toast(`✔ Tienes la última versión (compilación ${mine})`, 3500); return; }
     upd = { n, url: asset.browser_download_url, shown: false };
     $('upd-title').textContent = 'Hay una versión nueva de Karaoke TV';
     $('upd-msg').textContent = `Tienes la compilación ${mine} y está disponible la ${n}. Se descarga en segundos; Android te pedirá confirmar con «Instalar».`;
     if (screen === 'home' || screen === 'search') go('home');
-  } catch (e) {}
+  } catch (e) { if (manual) toast('No pude revisar actualizaciones: ' + errText(e).replace(/^Error de conexión: /, ''), 4000); }
 }
 
 /* ---------- llamadas desde Android ---------- */
