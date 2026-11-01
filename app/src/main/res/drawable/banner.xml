@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="320dp"
+    android:height="180dp"
+    android:viewportWidth="320"
+    android:viewportHeight="180">
+
+    <!-- fondo -->
+    <path android:fillColor="#1A1033" android:pathData="M0,0h320v180h-320z" />
+    <path android:fillColor="#2A1850" android:pathData="M0,140h320v40h-320z" />
+
+    <!-- notas musicales -->
+    <path android:fillColor="#FF4F9A"
+        android:pathData="M62,122a11,8 0,1 0,22 0a11,8 0,1 0,-22 0z" />
+    <path android:strokeColor="#FF4F9A" android:strokeWidth="4"
+        android:pathData="M82,122V70l18,10" />
+    <path android:fillColor="#FF4F9A"
+        android:pathData="M226,112a10,7 0,1 0,20 0a10,7 0,1 0,-20 0z" />
+    <path android:fillColor="#FF4F9A"
+        android:pathData="M252,104a10,7 0,1 0,20 0a10,7 0,1 0,-20 0z" />
+    <path android:strokeColor="#FF4F9A" android:strokeWidth="4"
+        android:pathData="M244,112V64l26,-8V104" />
+
+    <!-- micrófono -->
+    <path android:fillColor="#FFD400"
+        android:pathData="M144,52a16,16 0,1 1,32 0v34a16,16 0,1 1,-32 0z" />
+    <path android:strokeColor="#FFD400" android:strokeWidth="6"
+        android:strokeLineCap="round"
+        android:pathData="M132,84a28,28 0,0 0,56 0" />
+    <path android:strokeColor="#FFD400" android:strokeWidth="6"
+        android:strokeLineCap="round"
+        android:pathData="M160,112v20M144,134h32" />
+</vector>

@@ -1,0 +1,48 @@
+plugins {
+    id 'com.android.application'
+}
+
+// En GitHub Actions cada compilación sube el número de versión,
+// así la TV acepta instalar la nueva encima de la anterior.
+def buildNumber = (System.getenv('GITHUB_RUN_NUMBER') ?: '1').toInteger()
+
+android {
+    namespace 'cl.camilo.karaoketv'
+    compileSdk 35
+
+    defaultConfig {
+        applicationId 'cl.camilo.karaoketv'
+        minSdk 23
+        targetSdk 35
+        versionCode buildNumber
+        versionName "1.0.${buildNumber}"
+    }
+
+    // Firma fija para que las actualizaciones se instalen sin desinstalar.
+    // Es solo para uso personal; no publiques esta clave en la Play Store.
+    signingConfigs {
+        release {
+            storeFile file('karaoke.keystore')
+            storePassword 'karaoke123'
+            keyAlias 'karaoke'
+            keyPassword 'karaoke123'
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig signingConfigs.release
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    lint {
+        checkReleaseBuilds false
+        abortOnError false
+    }
+}
