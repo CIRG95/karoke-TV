@@ -95,16 +95,32 @@
   #npch { font-size: 1.35vw; color: var(--dim); margin-top: .5vh; }
   #src { font-size: 1.15vw; color: var(--dim); margin-top: .6vh; }
   #lyrics { position: absolute; left: 4vw; right: 4vw; bottom: 5vh; text-align: center; }
-  .ln { font-size: 2.5vw; color: rgba(255,255,255,.55); min-height: 3.5vw; line-height: 1.35; margin: .5vh 0;
+  #player { --ls: .85; }
+  .ln { font-size: calc(2.5vw * var(--ls)); color: rgba(255,255,255,.55); min-height: calc(3.5vw * var(--ls)); line-height: 1.35; margin: .5vh 0;
     font-weight: 600; text-shadow: 0 .15vw .5vw rgba(0,0,0,.9); }
-  .ln.small { font-size: 2.1vw; opacity: .7; }
-  #l-cur { font-size: 4.2vw; font-weight: 800; line-height: 1.25; margin: 1.3vh 0; min-height: 5.3vw;
+  .ln.small { font-size: calc(2.1vw * var(--ls)); opacity: .7; }
+  .ln.x { display: none; }
+  #l-cur { font-size: calc(4.2vw * var(--ls)); font-weight: 800; line-height: 1.25; margin: 1.3vh 0; min-height: calc(5.3vw * var(--ls));
     filter: drop-shadow(0 .2vw .4vw rgba(0,0,0,.9)); }
+
+  /* diseño "lado a lado": video a la izquierda, letra a la derecha */
+  #player.split #yt { inset: auto; left: 0; top: 50%; width: 62vw; height: 34.875vw; transform: translateY(-50%); }
+  #player.split #shade { display: none; }
+  #player.split #top { right: 38vw; }
+  #player.split #lyrics { left: 64.5vw; right: 3vw; top: 0; bottom: 0; display: flex; flex-direction: column;
+    justify-content: center; text-align: left; }
+  #player.split .ln, #player.split .ln.small, #player.split .ln.x { display: block; font-size: calc(1.9vw * var(--ls));
+    min-height: calc(2.6vw * var(--ls)); margin: .9vh 0; opacity: 1; }
+  #player.split .ln.x, #player.split .ln.small { color: rgba(255,255,255,.38); }
+  #player.split #l-cur { font-size: calc(2.9vw * var(--ls)); min-height: calc(3.7vw * var(--ls)); margin: 1.4vh 0; }
+  #player.split #plain { left: 64.5vw; right: 3vw; top: 7vh; bottom: 7vh; max-height: none; text-align: left;
+    font-size: calc(1.8vw * var(--ls)); }
+  #player.split #hint { display: none; }
   #l-cur-t { --p: 0%;
     background-image: linear-gradient(90deg, var(--acc) var(--p), #fff var(--p));
     -webkit-background-clip: text; background-clip: text; color: transparent; }
   #plain { position: absolute; left: 10vw; right: 10vw; bottom: 4vh; max-height: 46vh; overflow: hidden;
-    text-align: center; font-size: 2.2vw; line-height: 1.5; white-space: pre-line; display: none;
+    text-align: center; font-size: calc(2.2vw * var(--ls)); line-height: 1.5; white-space: pre-line; display: none;
     text-shadow: 0 .15vw .5vw rgba(0,0,0,.9); }
   #player.panel #lyrics, #player.panel #plain, #player.cd #lyrics, #player.cd #plain { visibility: hidden; }
   #msg { position: absolute; left: 50%; top: 40%; transform: translate(-50%,-50%); max-width: 70vw;
@@ -221,10 +237,13 @@
   <div id="shade"></div>
   <div id="top"><div id="np"></div><div id="npch"></div><div id="src"></div></div>
   <div id="lyrics">
+    <div id="l-prev2" class="ln x"></div>
     <div id="l-prev" class="ln"></div>
     <div id="l-cur"><span id="l-cur-t"></span></div>
     <div id="l-next" class="ln"></div>
     <div id="l-next2" class="ln small"></div>
+    <div id="l-next3" class="ln x"></div>
+    <div id="l-next4" class="ln x"></div>
   </div>
   <div id="plain"></div>
   <div id="panel">
@@ -582,6 +601,8 @@ function act(a) {
   else if (a === 'minus') shiftOffset(-0.5);
   else if (a === 'plus') shiftOffset(+0.5);
   else if (a === 'lyr') nextCand(1);
+  else if (a === 'size') setSize(lsize === SIZES.length - 1 ? -(SIZES.length - 1) : 1);
+  else if (a === 'layout') toggleLayout();
   else if (a === 'auto') { autoplay = !autoplay; LS.set('autoplay', autoplay); toast('Reproducción automática: ' + (autoplay ? 'activada' : 'desactivada')); }
   renderCtl();
 }
@@ -790,7 +811,7 @@ let hintT, topT;
 function showHint() { $('hint').classList.add('on'); clearTimeout(hintT); hintT = setTimeout(() => $('hint').classList.remove('on'), 7000); }
 function showTop(ms = 6000) { $('player').classList.add('showtop'); clearTimeout(topT); topT = setTimeout(() => $('player').classList.remove('showtop'), ms); }
 function clearLyrics() {
-  for (const id of ['l-prev', 'l-cur-t', 'l-next', 'l-next2']) $(id).textContent = '';
+  for (const id of ['l-prev2', 'l-prev', 'l-cur-t', 'l-next', 'l-next2', 'l-next3', 'l-next4']) $(id).textContent = '';
   $('l-cur-t').style.setProperty('--p', '0%');
   $('plain').style.display = 'none'; $('plain').textContent = '';
   $('lyrics').style.display = '';
@@ -982,6 +1003,8 @@ function renderCtl() {
     ['minus', '◀ Letra −0,5 s'],
     ['plus', 'Letra +0,5 s ▶'],
     ['lyr', '📝 Otra letra' + (n > 1 ? ` (${cur.ci + 1}/${n})` : '')],
+    ['size', '🔠 Tamaño: ' + SIZES[lsize].n],
+    ['layout', layout === 'split' ? '◧ Diseño: Lado a lado' : '▣ Diseño: Encima'],
     ['auto', '🔁 Automático: ' + (autoplay ? 'Sí' : 'No')]
   ];
   $('ctl').innerHTML = btns.map(([a, t]) => `<div class="pb" data-act="${a}">${t}</div>`).join('');
@@ -1033,10 +1056,32 @@ function nowTime() {
 function lineText(k) { const L = cur.lines; return k >= 0 && k < L.length ? (L[k].text || '♪') : ''; }
 function drawLines() {
   const i = cur.idx;
+  $('l-prev2').textContent = lineText(i - 2);
   $('l-prev').textContent = lineText(i - 1);
   $('l-cur-t').textContent = i < 0 ? '♪ ♪ ♪' : lineText(i);
   $('l-next').textContent = lineText(i + 1);
   $('l-next2').textContent = lineText(i + 2);
+  $('l-next3').textContent = lineText(i + 3);
+  $('l-next4').textContent = lineText(i + 4);
+}
+
+/* ---------- tamaño de letra y diseño ---------- */
+const SIZES = [{ n: 'Pequeña', v: .7 }, { n: 'Mediana', v: .85 }, { n: 'Grande', v: 1 }, { n: 'Muy grande', v: 1.2 }];
+let lsize = Math.max(0, Math.min(SIZES.length - 1, LS.get('lsize', 1)));
+let layout = LS.get('layout', 'over') === 'split' ? 'split' : 'over';
+function applyLook() {
+  $('player').style.setProperty('--ls', SIZES[lsize].v);
+  $('player').classList.toggle('split', layout === 'split');
+}
+function setSize(d) {
+  lsize = Math.max(0, Math.min(SIZES.length - 1, lsize + d));
+  LS.set('lsize', lsize); applyLook();
+  toast('🔠 Tamaño de letra: ' + SIZES[lsize].n);
+}
+function toggleLayout() {
+  layout = layout === 'split' ? 'over' : 'split';
+  LS.set('layout', layout); applyLook();
+  toast(layout === 'split' ? '◧ Video a la izquierda, letra a la derecha' : '▣ Letra encima del video');
 }
 function frame() {
   requestAnimationFrame(frame);
@@ -1185,6 +1230,9 @@ window.remoteCmd = (kind, body) => {
   else if (kind === 'next') { if (hasNext()) { stopCountdown(); play(null, { queueIndex: Q.i + 1 }); } else toast('No hay más canciones en la cola'); }
   else if (kind === 'minus') shiftOffset(-0.5);
   else if (kind === 'plus') shiftOffset(+0.5);
+  else if (kind === 'smaller') setSize(-1);
+  else if (kind === 'bigger') setSize(+1);
+  else if (kind === 'layout') toggleLayout();
   renderCtl();
   pushState();
 };
@@ -1239,6 +1287,7 @@ window.appResume = () => { refreshRemoteUrl(); };
 $('q').addEventListener('input', () => { dirty = true; });
 $('key').addEventListener('input', () => { dirty = true; });
 loadKey();
+applyLook();
 requestAnimationFrame(frame);
 refreshRemoteUrl();
 go('home');

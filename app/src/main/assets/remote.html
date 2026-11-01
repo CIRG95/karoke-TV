@@ -26,6 +26,7 @@
   .empty { color: var(--dim); font-size: 14px; padding: 6px 2px; }
 
   .ctl { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 10px; }
+  .ctl.ctl3 { grid-template-columns: repeat(3, 1fr); margin-top: 8px; }
   button { font: inherit; color: var(--fg); background: var(--card); border: 1px solid var(--line); border-radius: 999px;
     padding: 12px 10px; font-size: 14px; font-weight: 500; cursor: pointer; }
   button:active { transform: scale(.97); }
@@ -68,6 +69,12 @@
     <button data-c="next">⏭</button>
     <button data-c="plus">Letra +</button>
   </div>
+  <div class="ctl ctl3">
+    <button data-c="smaller">Texto A−</button>
+    <button data-c="layout">◧ Diseño</button>
+    <button data-c="bigger">Texto A+</button>
+  </div>
+  <p class="help" style="margin-top:6px">«Letra −/+» adelanta o atrasa la letra; «Texto» cambia su tamaño; «Diseño» pone el video al lado.</p>
 </section>
 
 <section>
