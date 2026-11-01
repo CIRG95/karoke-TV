@@ -13,6 +13,30 @@ Las letras salen de dos fuentes gratuitas, sin clave:
 Todas las letras encontradas quedan disponibles en "📝 Otra letra", indicando la fuente.
 SimpMusic es un proyecto comunitario no oficial: si deja de responder, la app sigue usando LRCLIB.
 
+## Pedir canciones desde el celular 📱
+
+En el inicio de la TV aparece un **código QR** arriba a la derecha.
+
+1. El celular tiene que estar en el **mismo WiFi** que la TV. Escanea el código con la cámara.
+2. Se abre la página de control (sirve en cualquier celular, no hay que instalar nada).
+3. En la app de YouTube del celular: abre la canción → **Compartir** → **Copiar enlace**.
+4. Vuelve a la página, pega el enlace y elige **＋ A la cola** o **🎤 Cantar ya**.
+
+Desde esa página también puedes pausar, saltar a la siguiente y ajustar la letra, y ves la cola.
+Varias personas pueden pedir canciones a la vez; si ponen su nombre, aparece en la TV.
+
+La **clave de YouTube es opcional**: sin clave funciona todo menos buscar con el control
+de la TV y la fila de Tendencias. Las listas tampoco muestran la duración de cada video.
+
+## Actualizaciones
+
+Al abrirse, la app revisa si hay una compilación nueva en GitHub y ofrece
+**Actualizar ahora**: la descarga y abre el instalador de Android (hay que confirmar con «Instalar»).
+La primera vez Android pide permitir que Karaoke TV instale apps; la app te lleva a ese ajuste.
+
+La versión 1 no traía este aviso, así que esa actualización se hace a mano una vez
+(Downloader con el mismo enlace). De ahí en adelante es automático.
+
 ## Cómo se usa
 
 La interfaz imita YouTube en la TV: barra lateral (🏠 Inicio, 🔍 Buscar, ⚙️ Clave) y filas de miniaturas.

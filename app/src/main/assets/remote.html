@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0f0f0f">
+<title>Karaoke TV · Control</title>
+<style>
+  :root { --bg:#0f0f0f; --fg:#f1f1f1; --dim:#aaa; --card:#212121; --line:#333; --red:#ff0033; --acc:#ffd400; }
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+  html, body { background: var(--bg); color: var(--fg); font-family: Roboto, system-ui, -apple-system, "Segoe UI", sans-serif; }
+  body { padding: 16px 16px calc(24px + env(safe-area-inset-bottom)); max-width: 560px; margin: 0 auto; }
+  header { display: flex; align-items: center; gap: 10px; margin-bottom: 18px; }
+  header svg { width: 34px; height: auto; }
+  header h1 { font-size: 20px; font-weight: 700; letter-spacing: -.02em; }
+  header .st { margin-left: auto; font-size: 12px; color: var(--dim); display: flex; align-items: center; gap: 6px; }
+  header .dot { width: 8px; height: 8px; border-radius: 50%; background: #666; }
+  header .dot.ok { background: #2ecc71; }
+  section { margin-bottom: 22px; }
+  h2 { font-size: 13px; font-weight: 500; color: var(--dim); text-transform: uppercase; letter-spacing: .06em; margin-bottom: 10px; }
+
+  .now { display: flex; gap: 12px; align-items: center; background: var(--card); border-radius: 14px; padding: 10px; }
+  .now img, .q img { width: 112px; aspect-ratio: 16/9; object-fit: cover; border-radius: 8px; background: #333; flex: none; }
+  .now .t, .q .t { font-size: 15px; font-weight: 500; line-height: 1.3; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .now .c, .q .c { font-size: 13px; color: var(--dim); margin-top: 3px; }
+  .empty { color: var(--dim); font-size: 14px; padding: 6px 2px; }
+
+  .ctl { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 10px; }
+  button { font: inherit; color: var(--fg); background: var(--card); border: 1px solid var(--line); border-radius: 999px;
+    padding: 12px 10px; font-size: 14px; font-weight: 500; cursor: pointer; }
+  button:active { transform: scale(.97); }
+  button.pri { background: var(--fg); color: #0f0f0f; border-color: var(--fg); }
+  button.red { background: var(--red); border-color: var(--red); color: #fff; }
+
+  textarea, input { width: 100%; font: inherit; font-size: 16px; color: var(--fg); background: #181818; border: 1px solid var(--line);
+    border-radius: 12px; padding: 12px 14px; outline: none; }
+  textarea { min-height: 76px; resize: none; }
+  textarea:focus, input:focus { border-color: var(--fg); }
+  .row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 10px; }
+  .help { font-size: 13px; color: var(--dim); line-height: 1.5; margin-top: 10px; }
+  .help b { color: var(--fg); font-weight: 500; }
+  a.yt { display: inline-flex; align-items: center; gap: 6px; color: var(--fg); text-decoration: none; font-size: 14px; font-weight: 500;
+    background: var(--card); border: 1px solid var(--line); border-radius: 999px; padding: 8px 14px; margin-top: 10px; }
+
+  .q { display: flex; gap: 12px; align-items: center; padding: 8px 0; border-bottom: 1px solid #1f1f1f; }
+  .q img { width: 96px; }
+  .tag { display: inline-block; font-size: 11px; font-weight: 700; background: var(--red); color: #fff; border-radius: 4px; padding: 1px 6px; margin-bottom: 3px; }
+
+  #toast { position: fixed; left: 50%; bottom: calc(20px + env(safe-area-inset-bottom)); transform: translateX(-50%); background: #2a2a2a;
+    color: #fff; padding: 12px 18px; border-radius: 999px; font-size: 14px; opacity: 0; transition: opacity .25s; pointer-events: none;
+    max-width: 90vw; text-align: center; }
+  #toast.on { opacity: 1; }
+</style>
+</head>
+<body>
+<header>
+  <svg viewBox="0 0 30 21"><rect width="30" height="21" rx="5" fill="#ff0033"/><path d="M12 6v9l8-4.5z" fill="#fff"/></svg>
+  <h1>Karaoke</h1>
+  <div class="st"><span id="dot" class="dot"></span><span id="conn">Conectando…</span></div>
+</header>
+
+<section>
+  <h2>Sonando en la TV</h2>
+  <div id="now" class="empty">Nada por ahora.</div>
+  <div class="ctl">
+    <button data-c="minus">Letra −</button>
+    <button data-c="pp">⏯</button>
+    <button data-c="next">⏭</button>
+    <button data-c="plus">Letra +</button>
+  </div>
+</section>
+
+<section>
+  <h2>Pedir una canción</h2>
+  <textarea id="url" placeholder="Pega aquí el enlace de YouTube" autocomplete="off" autocapitalize="off" spellcheck="false"></textarea>
+  <div class="row">
+    <button id="queue" class="pri">＋ A la cola</button>
+    <button id="now-btn" class="red">🎤 Cantar ya</button>
+  </div>
+  <p class="help">En la app de YouTube: abre la canción → <b>Compartir</b> → <b>Copiar enlace</b> → vuelve aquí y pégalo.</p>
+  <a class="yt" href="https://www.youtube.com/" target="_blank" rel="noopener">▶ Abrir YouTube</a>
+  <div style="margin-top:14px"><input id="name" placeholder="Tu nombre (opcional, para la fiesta)" maxlength="24" autocomplete="off"></div>
+</section>
+
+<section>
+  <h2>A continuación</h2>
+  <div id="list" class="empty">La cola está vacía.</div>
+</section>
+
+<div id="toast"></div>
+
+<script>
+'use strict';
+const $ = id => document.getElementById(id);
+const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const thumb = id => 'https://i.ytimg.com/vi/' + encodeURIComponent(id) + '/mqdefault.jpg';
+let toastT;
+function toast(t) { const el = $('toast'); el.textContent = t; el.classList.add('on'); clearTimeout(toastT); toastT = setTimeout(() => el.classList.remove('on'), 2600); }
+
+function parseId(s) {
+  s = String(s || '').trim();
+  const m = s.match(/(?:[?&]v=|youtu\.be\/|\/shorts\/|\/embed\/|\/live\/)([A-Za-z0-9_-]{11})/);
+  if (m) return m[1];
+  return /^[A-Za-z0-9_-]{11}$/.test(s) ? s : null;
+}
+async function post(kind, data) {
+  try {
+    const r = await fetch('/api/' + kind, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data || {}) });
+    return r.ok;
+  } catch (e) { return false; }
+}
+try { $('name').value = localStorage.getItem('karaokeName') || ''; } catch (e) {}
+$('name').addEventListener('input', () => { try { localStorage.setItem('karaokeName', $('name').value); } catch (e) {} });
+
+async function send(mode) {
+  const url = $('url').value;
+  if (!parseId(url)) { toast('Eso no parece un enlace de YouTube'); return; }
+  const ok = await post('add', { url, mode, name: $('name').value.trim() });
+  if (ok) { $('url').value = ''; toast(mode === 'now' ? '🎤 ¡Enviada a la TV!' : '＋ Agregada a la cola'); setTimeout(refresh, 900); }
+  else toast('No pude conectar con la TV');
+}
+$('queue').onclick = () => send('queue');
+$('now-btn').onclick = () => send('now');
+for (const b of document.querySelectorAll('[data-c]')) b.onclick = async () => {
+  const ok = await post(b.dataset.c);
+  if (!ok) toast('No pude conectar con la TV'); else setTimeout(refresh, 600);
+};
+
+function render(s) {
+  if (s.now) {
+    $('now').className = 'now';
+    $('now').innerHTML = `<img src="${thumb(s.now.id)}" alt=""><div><div class="t">${esc(s.now.title)}</div>` +
+      `<div class="c">${esc(s.now.channel)}${s.playing === false ? ' · en pausa' : ''}${s.offset ? ` · letra ${s.offset > 0 ? '+' : ''}${String(s.offset).replace('.', ',')} s` : ''}</div></div>`;
+  } else { $('now').className = 'empty'; $('now').textContent = 'Nada por ahora. Pide una canción abajo.'; }
+  const q = s.queue || [];
+  if (!q.length) { $('list').className = 'empty'; $('list').textContent = 'La cola está vacía.'; return; }
+  $('list').className = '';
+  $('list').innerHTML = q.map(v => `<div class="q"><img src="${thumb(v.id)}" alt="" loading="lazy"><div>` +
+    (v.req ? `<span class="tag">📱 ${esc(v.by || 'Pedida')}</span>` : '') +
+    `<div class="t">${esc(v.title)}</div><div class="c">${esc(v.channel)}</div></div></div>`).join('');
+}
+let last = '';
+async function refresh() {
+  try {
+    const r = await fetch('/api/state', { cache: 'no-store' });
+    const txt = await r.text();
+    $('dot').classList.add('ok'); $('conn').textContent = 'Conectado a la TV';
+    if (txt !== last) { last = txt; render(JSON.parse(txt || '{}')); }
+  } catch (e) { $('dot').classList.remove('ok'); $('conn').textContent = 'Sin conexión'; }
+}
+refresh();
+setInterval(refresh, 2500);
+</script>
+</body>
+</html>

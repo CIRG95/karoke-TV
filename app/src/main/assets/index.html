@@ -146,6 +146,25 @@
     padding: 1.2vh 2vw; border-radius: 3vw; opacity: 0; transition: opacity .25s;
     pointer-events: none; max-width: 80vw; text-align: center; }
   #toast.on { opacity: 1; }
+  /* código QR para mandar canciones desde el celular */
+  #qr { position: fixed; right: 3vw; top: 2.2vh; z-index: 4; display: none; align-items: center; gap: 1vw;
+    background: #1c1c1c; border-radius: 1vw; padding: .6vw .9vw .6vw .6vw; }
+  #qr.show { display: flex; }
+  #qr .code { width: 6.2vw; height: 6.2vw; background: #fff; border-radius: .5vw; padding: .3vw; }
+  #qr .code svg { width: 100%; height: 100%; display: block; }
+  #qr .tx { font-size: 1.15vw; line-height: 1.35; max-width: 14vw; }
+  #qr .tx b { font-weight: 500; }
+  #qr .tx .u { color: var(--dim); font-size: 1vw; margin-top: .3vh; }
+  body.hasqr .topbar { padding-right: 26vw; }
+  body.hasqr #home-main { padding-top: 17vh; }
+  body.hasqr #search-main { padding-top: 17vh; }
+
+  /* actualización */
+  #update .box { position: absolute; left: 50%; top: 50%; transform: translate(-50%,-50%); width: 60vw;
+    display: flex; flex-direction: column; gap: 2.4vh; }
+  #update h2 { font-size: 2.4vw; font-weight: 500; }
+  #update p { font-size: 1.6vw; line-height: 1.5; color: var(--dim); }
+  #update .btns { display: flex; gap: 1.5vw; }
   #mixbox { position: fixed; left: 0; top: 0; width: 320px; height: 180px; opacity: 0; pointer-events: none; z-index: -1; }
 </style>
 </head>
@@ -167,8 +186,9 @@
 <div id="setup" class="screen">
   <div class="box">
     <div class="logo-slot"></div>
-    <p>Para buscar videos se necesita una <b>clave gratuita de la API de YouTube</b> (los pasos están en el README).
-       Escríbela o pégala aquí. Tip: con la app <b>Google TV</b> del celular puedes usar el teclado del teléfono.</p>
+    <p>Para <b>buscar desde la TV</b> con el control se necesita una <b>clave gratuita de la API de YouTube</b>
+       (los pasos están en el README). Es opcional: sin clave puedes mandar canciones desde el celular.
+       Tip: con la app <b>Google TV</b> del celular puedes pegar la clave con el teclado del teléfono.</p>
     <input id="key" class="field" type="text" autocomplete="off" autocapitalize="off"
            spellcheck="false" enterkeyhint="done" placeholder="AIza…">
     <div id="save" class="btn">Guardar</div>
@@ -180,7 +200,7 @@
   <div class="topbar"><div class="logo-slot"></div></div>
   <div id="home-main" class="main">
     <div id="shelves"></div>
-    <div id="home-empty">Todavía no has cantado nada.<br>Ve a 🔍 <b>Buscar</b> (◀ y luego ▼) y elige tu primera canción.</div>
+    <div id="home-empty"></div>
   </div>
 </div>
 
@@ -218,9 +238,21 @@
   <div id="hint">OK pausa · ◀ ▶ ajustar letra · ▼ más videos · ATRÁS salir</div>
 </div>
 
+<div id="update" class="screen">
+  <div class="box">
+    <div class="logo-slot"></div>
+    <h2 id="upd-title">Hay una versión nueva</h2>
+    <p id="upd-msg"></p>
+    <div class="btns"><div id="upd-go" class="btn" data-act="doupdate">Actualizar ahora</div>
+      <div id="upd-later" class="btn" data-act="later">Más tarde</div></div>
+  </div>
+</div>
+
+<div id="qr"><div class="code"></div><div class="tx"><b>📱 Pide canciones desde tu celular</b><div class="u"></div></div></div>
 <div id="toast"></div>
 <div id="mixbox"></div>
 
+<script src="qrcode.js"></script>
 <script>
 'use strict';
 const $ = id => document.getElementById(id);
@@ -285,6 +317,9 @@ function show(name) {
   for (const el of document.querySelectorAll('.screen')) el.classList.toggle('on', el.id === name);
   screen = name;
   $('rail').classList.toggle('show', hasRail());
+  const q = hasRail() && !!remoteUrl;
+  $('qr').classList.toggle('show', q);
+  document.body.classList.toggle('hasqr', q);
   for (const r of document.querySelectorAll('.ri')) r.classList.toggle('cur', r.dataset.act === name);
 }
 let toastT;
@@ -319,6 +354,25 @@ async function ytSearch(q, max = 24) {  // 101 unidades de cuota
   const d = await getJSON(YT_API + 'search?part=id&type=video&videoEmbeddable=true&videoSyndicated=true' +
     '&maxResults=' + max + '&regionCode=' + REGION + '&q=' + enc(q) + '&key=' + enc(ytKey));
   return videosInfo((d.items || []).map(it => it.id && it.id.videoId).filter(Boolean));
+}
+async function oembed(id) {             // sin clave: título y canal (sin duración)
+  try {
+    const d = await getJSON('https://www.youtube.com/oembed?format=json&url=' + enc('https://www.youtube.com/watch?v=' + id));
+    return { id, title: d.title || 'Video de YouTube', channel: d.author_name || '', dur: '' };
+  } catch (e) { return null; }
+}
+async function oembedMany(ids, max = 20) {
+  const out = [];
+  const list = ids.slice(0, max);
+  for (let i = 0; i < list.length; i += 5) {
+    const part = await Promise.all(list.slice(i, i + 5).map(oembed));
+    for (const v of part) if (v) out.push(v);
+  }
+  return out;
+}
+async function videoMeta(id) {
+  if (ytKey) { try { const r = await videosInfo([id]); if (r[0]) return r[0]; } catch (e) {} }
+  return (await oembed(id)) || { id, title: 'Video de YouTube', channel: '', dur: '' };
 }
 async function trending() {             // 1 unidad de cuota
   const c = LS.get('trend', null);
@@ -381,8 +435,11 @@ async function related(v) {
   if (c && Date.now() - c.t < 12 * 3600e3 && c.items.length) return c;
   let items = [], src = 'mix';
   const ids = (await mixIds(v.id)).filter(x => x !== v.id);
-  if (ids.length) { try { items = await videosInfo(ids); } catch (e) {} }
-  if (items.length < 3) {
+  if (ids.length) {
+    if (ytKey) { try { items = await videosInfo(ids); } catch (e) {} }
+    if (!items.length) items = await oembedMany(ids);
+  }
+  if (items.length < 3 && ytKey) {
     const { artist } = guessArtistTrack(v);
     src = 'artist';
     items = (await ytSearch(artist || v.channel, 20)).filter(x => x.id !== v.id);
@@ -421,6 +478,7 @@ function rowsFor() {
     return rows;
   }
   if (screen === 'setup') return [{ key: 'k', els: [$('key')] }, { key: 's', els: [$('save')] }];
+  if (screen === 'update') return [{ key: 'u', els: [$('upd-go'), $('upd-later')] }];
   if (screen === 'player' && panelOpen)
     return [{ key: 'ctl', els: [...document.querySelectorAll('#ctl .pb')] },
             { key: 'next', els: [...document.querySelectorAll('#upnext .card')] }].filter(r => r.els.length);
@@ -439,7 +497,7 @@ function applyFocus() {
   const f = F();
   if (f.zone === 'main' && !rowsFor().length && hasRail()) { f.zone = 'rail'; f.autoRail = true; }
   for (const e of document.querySelectorAll('.focused')) e.classList.remove('focused');
-  $('rail').classList.toggle('open', hasRail() && f.zone === 'rail');
+  $('rail').classList.toggle('open', hasRail() && f.zone === 'rail' && !f.autoRail);
   const el = curEl();
   if (!el) return;
   el.classList.add('focused');
@@ -514,6 +572,11 @@ function activate(el) {
 }
 function act(a) {
   if (a === 'home' || a === 'search' || a === 'setup') return go(a);
+  if (a === 'later') { if (upd) upd.shown = true; return go('home'); }
+  if (a === 'doupdate') {
+    if (upd && A && A.installUpdate) { updateStatus('Preparando…'); A.installUpdate(upd.url); }
+    return;
+  }
   if (screen !== 'player' || !cur) return;
   if (a === 'pp') togglePlay();
   else if (a === 'minus') shiftOffset(-0.5);
@@ -533,6 +596,7 @@ document.addEventListener('keydown', e => {
 }, true);
 
 function go(name) {
+  if (name === 'home' && upd && !upd.shown) name = 'update';
   show(name);
   const f = F();
   f.rail = Math.max(0, railEls().findIndex(r => r.dataset.act === name));
@@ -540,7 +604,11 @@ function go(name) {
   if (name === 'home') { if (f.zone === 'rail' && !f.autoRail) f.zone = 'main'; loadHome(); }
   if (name === 'search') { f.zone = 'main'; if (!(lists.search || []).length) f.r = 0; }
   if (name === 'setup') { $('key').value = ytKey; f.zone = 'main'; f.r = 0; }
+  if (name === 'search' && !ytKey && !(lists.search || []).length)
+    status('Para buscar desde la TV necesitas una clave de YouTube (⚙️). Sin clave, pide canciones desde el celular escaneando el código de arriba.');
+  if (name === 'update') { f.zone = 'main'; f.r = 0; f.mem.u = 0; }
   applyFocus();
+  pushState();
 }
 
 /* ---------- configuración ---------- */
@@ -564,7 +632,7 @@ function loadHome() {
   if (rec[0]) shelves.push({ key: 'mix0', title: 'Porque cantaste “' + short(rec[0].title) + '”', items: null, load: () => related(rec[0]).then(r => r.items) });
   if (rec.length) shelves.push({ key: 'recent', title: 'Seguir cantando', items: rec });
   if (rec[1]) shelves.push({ key: 'mix1', title: 'Porque cantaste “' + short(rec[1].title) + '”', items: null, load: () => related(rec[1]).then(r => r.items) });
-  shelves.push({ key: 'trend', title: 'Tendencias de música en Chile', items: null, load: trending });
+  if (ytKey) shelves.push({ key: 'trend', title: 'Tendencias de música en Chile', items: null, load: trending });
   home = { sig, shelves };
   renderHome();
   for (const s of shelves) {
@@ -584,7 +652,12 @@ function renderHome() {
     html += `<div class="shelf" data-key="${s.key}"><h2>${esc(s.title)}</h2><div class="strip">${body}</div></div>`;
   }
   $('shelves').innerHTML = html;
-  $('home-empty').style.display = home.shelves.length <= 1 && !LS.get('recent', []).length ? 'block' : 'none';
+  const none = !LS.get('recent', []).length;
+  $('home-empty').innerHTML = !none ? '' : remoteUrl
+    ? '¡Bienvenido! Escanea el código de arriba con tu celular y manda tu primera canción desde YouTube.' +
+      (ytKey ? '<br>O ve a 🔍 <b>Buscar</b> (◀ y luego ▼) para buscar con el control.' : '<br>Si quieres buscar con el control, agrega una clave de YouTube en ⚙️.')
+    : 'Todavía no has cantado nada. Conecta la TV al WiFi para pedir canciones desde el celular' + (ytKey ? ', o ve a 🔍 Buscar.' : ', o agrega una clave de YouTube en ⚙️ para buscar con el control.');
+  $('home-empty').style.display = none ? 'block' : 'none';
   if (screen === 'home') {
     const f = F();
     if (f.zone === 'rail' && f.autoRail && rowsFor().length) { f.zone = 'main'; f.autoRail = false; }
@@ -600,7 +673,9 @@ function addRecent(v) {
 /* ---------- búsqueda ---------- */
 function status(text) { $('status').textContent = text; }
 async function doSearch(q) {
-  if (!ytKey) return go('setup');
+  const id = parseYtId(q);
+  if (id) return play(await videoMeta(id));
+  if (!ytKey) { status('Para buscar desde la TV necesitas una clave de YouTube (⚙️). Sin clave, pide canciones desde el celular escaneando el código de arriba.'); return; }
   status('Buscando “' + q + '”…');
   try {
     lists.search = await ytSearch(q);
@@ -738,16 +813,18 @@ async function play(v, opts = {}) {
     Q.i = opts.queueIndex;
   } else {
     if (!v) return;
-    if (screen !== 'player') returnTo = screen;
+    if (screen !== 'player' && screen !== 'update') returnTo = screen;
     const seed = v;
-    Q = { seed, list: [v], i: 0, loading: true, src: '' };
+    const carry = (opts.carry || []).filter(x => x.id !== v.id);   // pedidas pendientes que se mantienen
+    Q = { seed, list: [v, ...carry], i: 0, loading: true, src: '' };
     related(v).then(r => {
       if (Q.seed !== seed) return;
-      const seen = new Set([seed.id]);
-      Q.list = [seed, ...r.items.filter(x => !seen.has(x.id) && seen.add(x.id))];
+      const seen = new Set(Q.list.map(x => x.id));
+      Q.list = Q.list.concat(r.items.filter(x => !seen.has(x.id) && seen.add(x.id)));
       Q.src = r.src;
-    }).catch(() => {}).then(() => { if (Q.seed === seed) { Q.loading = false; renderNext(); } });
+    }).catch(() => {}).then(() => { if (Q.seed === seed) { Q.loading = false; renderNext(); pushState(); } });
   }
+  if (v.req) toast('🎤 ' + (v.by ? 'Pedida por ' + v.by : 'Pedida desde el celular') + ': ' + short(v.title, 50), 4000);
   stopCountdown();
   addRecent(v);
   const saved = prefsFor(v.id);
@@ -840,6 +917,7 @@ function onState(e) {
   if (!cur) return;
   if (e.data === 1) msg('');
   renderCtl();
+  pushState();
   if (e.data === 0) {
     if (autoplay && hasNext()) startCountdown();
     else { showTop(60000); openPanel(Q.list.length > 1 ? 'next' : 'ctl'); }
@@ -867,6 +945,7 @@ function stopPlayer() {
   closePanel();
   cur = null;
   msg('');
+  pushState();
 }
 function goBack() { stopPlayer(); go(returnTo || 'home'); }
 
@@ -914,7 +993,9 @@ function renderNext() {
   $('nexttitle').textContent = Q.loading ? 'Buscando videos similares…'
     : items.length ? (Q.src === 'artist' ? 'A continuación · Más de este artista' : 'A continuación · Mix de “' + short(Q.seed.title, 60) + '”')
     : 'No encontré videos similares';
-  $('upnext').innerHTML = Q.loading ? SKEL : items.map(([v, i]) => cardHTML(v, 'queue', i)).join('');
+  const reqCards = items.filter(([v]) => v.req).map(([v, i]) => cardHTML(v, 'queue', i, '📱 ' + (v.by || 'Pedida'))).join('');
+  $('upnext').innerHTML = reqCards + (Q.loading ? SKEL : items.filter(([v]) => !v.req).map(([v, i]) => cardHTML(v, 'queue', i)).join(''));
+  if (Q.loading && reqCards) $('nexttitle').textContent = 'A continuación · Pedidas desde el celular';
   if (screen === 'player') applyFocus();
 }
 
@@ -1039,6 +1120,94 @@ function playerKey(k, enter) {
   return false;
 }
 
+/* ---------- control desde el celular (servidor local de la app) ---------- */
+let remoteUrl = '';
+function parseYtId(s) {
+  s = String(s || '').trim();
+  const m = s.match(/(?:[?&]v=|youtu\.be\/|\/shorts\/|\/embed\/|\/live\/)([A-Za-z0-9_-]{11})/);
+  if (m) return m[1];
+  return /^[A-Za-z0-9_-]{11}$/.test(s) ? s : null;
+}
+function refreshRemoteUrl() {
+  const u = (A && A.getRemoteUrl) ? (A.getRemoteUrl() || '') : '';
+  if (u === remoteUrl) return;
+  remoteUrl = u;
+  if (u && window.qrcode) {
+    const qr = qrcode(0, 'M');
+    qr.addData(u); qr.make();
+    $('qr').querySelector('.code').innerHTML = qr.createSvgTag({ cellSize: 4, margin: 0, scalable: true });
+  }
+  $('qr').querySelector('.u').textContent = u.replace(/^http:\/\//, '');
+  if (screen) { show(screen); if (screen === 'home') renderHome(); }
+}
+let stateT = 0;
+function pushState() {
+  if (!A || !A.setRemoteState) return;
+  clearTimeout(stateT);
+  stateT = setTimeout(() => {
+    let playing = null;
+    try { playing = cur && player && playerReady ? player.getPlayerState() === 1 : null; } catch (e) {}
+    const s = {
+      now: cur ? { id: cur.v.id, title: cur.v.title, channel: cur.v.channel } : null,
+      playing, offset: cur ? cur.offset : 0, hasKey: !!ytKey,
+      queue: cur ? Q.list.slice(Q.i + 1, Q.i + 16).map(x => ({ id: x.id, title: x.title, channel: x.channel, req: !!x.req, by: x.by || '' })) : []
+    };
+    A.setRemoteState(JSON.stringify(s));
+  }, 150);
+}
+async function remoteAdd(d) {
+  const id = parseYtId(d.url);
+  if (!id) { toast('📱 Ese enlace no parece de YouTube'); return; }
+  const v = Object.assign({}, await videoMeta(id), { req: true, by: String(d.name || '').trim().slice(0, 24) });
+  const who = (v.by || 'Alguien') + ' ';
+  if (!cur || screen !== 'player') {
+    play(v);
+  } else if (d.mode === 'now') {
+    toast('📱 ' + who + 'puso: ' + short(v.title, 60), 3500);
+    play(v, { carry: Q.list.slice(Q.i + 1).filter(x => x.req) });
+  } else {
+    let pos = Q.i + 1;
+    while (pos < Q.list.length && Q.list[pos].req) pos++;
+    Q.list = Q.list.filter((x, k) => k <= Q.i || k < pos || x.id !== v.id);
+    pos = Math.min(pos, Q.list.length);
+    Q.list.splice(pos, 0, v);
+    toast('📱 ' + who + 'agregó a la cola: ' + short(v.title, 50), 3500);
+    renderNext();
+  }
+  pushState();
+}
+window.remoteCmd = (kind, body) => {
+  let d = {};
+  try { d = JSON.parse(body || '{}') || {}; } catch (e) {}
+  if (kind === 'add') { remoteAdd(d); return; }
+  if (screen !== 'player' || !cur) return;
+  if (kind === 'pp') togglePlay();
+  else if (kind === 'next') { if (hasNext()) { stopCountdown(); play(null, { queueIndex: Q.i + 1 }); } else toast('No hay más canciones en la cola'); }
+  else if (kind === 'minus') shiftOffset(-0.5);
+  else if (kind === 'plus') shiftOffset(+0.5);
+  renderCtl();
+  pushState();
+};
+
+/* ---------- actualizaciones (Releases de GitHub) ---------- */
+const UPDATE_REPO = 'CIRG95/karoke-TV';
+let upd = null;
+window.updateStatus = t => { $('upd-msg').textContent = t; };
+async function checkUpdate() {
+  if (!A || !A.getVersion || !A.installUpdate) return;
+  try {
+    const d = await getJSON('https://api.github.com/repos/' + UPDATE_REPO + '/releases/latest');
+    const m = /compilaci[oó]n\s+(\d+)/i.exec(d.name || '');
+    const n = m ? +m[1] : 0, mine = +A.getVersion() || 0;
+    const asset = (d.assets || []).find(a => /\.apk$/i.test(a.name));
+    if (!asset || n <= mine) return;
+    upd = { n, url: asset.browser_download_url, shown: false };
+    $('upd-title').textContent = 'Hay una versión nueva de Karaoke TV';
+    $('upd-msg').textContent = `Tienes la compilación ${mine} y está disponible la ${n}. Se descarga en segundos; Android te pedirá confirmar con «Instalar».`;
+    if (screen === 'home' || screen === 'search') go('home');
+  } catch (e) {}
+}
+
 /* ---------- llamadas desde Android ---------- */
 window.appBack = () => {
   if (screen === 'player') {
@@ -1046,7 +1215,8 @@ window.appBack = () => {
     if (panelOpen) { closePanel(); return true; }
     goBack(); return true;
   }
-  if (screen === 'setup') { if (ytKey) { go('home'); return true; } return false; }
+  if (screen === 'setup') { go('home'); return true; }
+  if (screen === 'update') { act('later'); return true; }
   const f = F();
   if (f.zone === 'main' && f.r > 0) { f.r = 0; applyFocus(); return true; }
   if (screen === 'search') { go('home'); return true; }
@@ -1061,14 +1231,20 @@ window.appMedia = name => {
   else if (name === 'pause') player.pauseVideo();
   else if (name === 'ff') seek(10);
   else if (name === 'rw') seek(-10);
+  else if (name === 'next' && hasNext()) { stopCountdown(); play(null, { queueIndex: Q.i + 1 }); }
 };
+window.appResume = () => { refreshRemoteUrl(); };
 
 /* ---------- inicio ---------- */
 $('q').addEventListener('input', () => { dirty = true; });
 $('key').addEventListener('input', () => { dirty = true; });
 loadKey();
 requestAnimationFrame(frame);
-go(ytKey ? 'home' : 'setup');
+refreshRemoteUrl();
+go('home');
+setInterval(refreshRemoteUrl, 5000);   // el servidor tarda un instante en partir y la IP puede cambiar
+setInterval(pushState, 3000);
+setTimeout(checkUpdate, 4000);
 </script>
 </body>
 </html>
